@@ -1,0 +1,23 @@
+{
+    "name": "envoisms/envoisms-php",
+    "description": "Official PHP SDK for EnvoiSMS.ma - SMS, WhatsApp & OTP API in Morocco",
+    "type": "library",
+    "license": "MIT",
+    "homepage": "https://envoisms.ma/fr/docs",
+    "authors": [
+        {
+            "name": "EnvoiSMS.ma",
+            "email": "contact@envoisms.ma"
+        }
+    ],
+    "require": {
+        "php": ">=8.0",
+        "ext-curl": "*",
+        "ext-json": "*"
+    },
+    "autoload": {
+        "psr-4": {
+            "EnvoiSMS\\": "src/"
+        }
+    }
+}
