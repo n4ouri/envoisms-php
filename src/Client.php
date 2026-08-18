@@ -25,6 +25,11 @@ class Client
         return $this->request('POST', '/v1/messages/bulk', $payload);
     }
 
+    public function getMessage(string $id): array
+    {
+        return $this->request('GET', '/v1/messages/' . urlencode($id));
+    }
+
     public function sendOtp(array $payload): array
     {
         return $this->request('POST', '/v1/verify/send', $payload);
@@ -36,6 +41,16 @@ class Client
             'session_id' => $sessionId,
             'code' => $code,
         ]);
+    }
+
+    public function getBalance(): array
+    {
+        return $this->request('GET', '/v1/billing/balance');
+    }
+
+    public function listPacks(): array
+    {
+        return $this->request('GET', '/v1/billing/packs');
     }
 
     public function analytics(int $days = 30): array
@@ -99,14 +114,13 @@ class Client
         }
 
         curl_close($ch);
-
-        $data = json_decode((string) $response, true) ?: [];
+        $data = json_decode($response, true);
 
         if ($status >= 400) {
-            $message = $data['error']['message'] ?? "EnvoiSMS API error status {$status}";
-            throw new RuntimeException($message, $status);
+            $message = $data['error']['message'] ?? "EnvoiSMS API error: status {$status}";
+            throw new RuntimeException($message);
         }
 
-        return $data;
+        return $data ?? [];
     }
 }
