@@ -1,20 +1,32 @@
 <?php
 
+declare(strict_types=1);
+
 namespace EnvoiSMS;
 
 use RuntimeException;
 
-class Client
+class EnvoiSMSError extends RuntimeException
 {
-    private string $apiKey;
-    private string $baseUrl;
-
-    public function __construct(string $apiKey, string $baseUrl = 'https://api.envoisms.ma')
-    {
-        $this->apiKey = $apiKey;
-        $this->baseUrl = rtrim($baseUrl, '/');
+    public function __construct(
+        string $message,
+        public readonly int $statusCode = 0,
+        public readonly ?string $errorCode = null
+    ) {
+        super($message, $statusCode);
     }
+}
 
+final class Client
+{
+    public function __construct(
+        private readonly string $apiKey,
+        private readonly string $baseUrl = 'https://api.envoisms.ma',
+        private readonly int $maxRetries = 2,
+        private readonly int $timeoutSeconds = 15
+    ) {}
+
+    // --- Messages ---
     public function send(array $payload): array
     {
         return $this->request('POST', '/v1/messages', $payload);
@@ -25,11 +37,17 @@ class Client
         return $this->request('POST', '/v1/messages/bulk', $payload);
     }
 
-    public function getMessage(string $id): array
+    public function getMessage(string $messageId): array
     {
-        return $this->request('GET', '/v1/messages/' . urlencode($id));
+        return $this->request('GET', '/v1/messages/' . urlencode($messageId));
     }
 
+    public function listMessages(int $limit = 50, int $offset = 0): array
+    {
+        return $this->request('GET', "/v1/messages?limit={$limit}&offset={$offset}");
+    }
+
+    // --- Verify / OTP ---
     public function sendOtp(array $payload): array
     {
         return $this->request('POST', '/v1/verify/send', $payload);
@@ -37,12 +55,15 @@ class Client
 
     public function checkOtp(string $sessionId, string $code): array
     {
-        return $this->request('POST', '/v1/verify/check', [
-            'session_id' => $sessionId,
-            'code' => $code,
-        ]);
+        return $this->request('POST', '/v1/verify/check', ['session_id' => $sessionId, 'code' => $code]);
     }
 
+    public function getOtpSession(string $sessionId): array
+    {
+        return $this->request('GET', '/v1/verify/' . urlencode($sessionId));
+    }
+
+    // --- Account & Billing ---
     public function getBalance(): array
     {
         return $this->request('GET', '/v1/billing/balance');
@@ -53,74 +74,105 @@ class Client
         return $this->request('GET', '/v1/billing/packs');
     }
 
-    public function analytics(int $days = 30): array
-    {
-        return $this->request('GET', '/v1/analytics?days=' . $days);
+    // --- Webhook Signature Verification ---
+    public static function verifyWebhookSignature(
+        string $rawBody,
+        string $signatureHeader,
+        string $secret,
+        int $toleranceSeconds = 300
+    ): bool {
+        if (empty($rawBody) || empty($signatureHeader) || empty($secret)) {
+            return false;
+        }
+
+        // Timestamped format: t=1234567890,v1=abcdef...
+        if (str_contains($signatureHeader, 't=') && str_contains($signatureHeader, 'v1=')) {
+            $parts = [];
+            foreach (explode(',', $signatureHeader) as $pair) {
+                $item = explode('=', trim($pair), 2);
+                if (count($item) === 2) {
+                    $parts[$item[0]] = $item[1];
+                }
+            }
+
+            $timestamp = isset($parts['t']) ? (int) $parts['t'] : 0;
+            $signature = $parts['v1'] ?? '';
+
+            if (!$timestamp || empty($signature)) {
+                return false;
+            }
+
+            if (abs(time() - $timestamp) > $toleranceSeconds) {
+                return false;
+            }
+
+            $expected = hash_hmac('sha256', "{$timestamp}.{$rawBody}", $secret);
+            return hash_equals($signature, $expected);
+        }
+
+        // Direct sha256=... header
+        $cleanSig = str_starts_with($signatureHeader, 'sha256=')
+            ? substr($signatureHeader, 7)
+            : $signatureHeader;
+
+        $expected = hash_hmac('sha256', $rawBody, $secret);
+        return hash_equals($cleanSig, $expected);
     }
 
-    public function listMessages(int $limit = 50): array
-    {
-        return $this->request('GET', '/v1/messages?limit=' . $limit);
-    }
-
-    public function createApiKey(array $payload): array
-    {
-        return $this->request('POST', '/v1/api-keys', $payload);
-    }
-
-    public function createOptout(string $phone): array
-    {
-        return $this->request('POST', '/v1/optouts', ['phone' => $phone]);
-    }
-
-    public function listPaymentMethods(): array
-    {
-        return $this->request('GET', '/v1/billing/payment-methods');
-    }
-
-    public function createTopup(array $payload): array
-    {
-        return $this->request('POST', '/v1/billing/topups', $payload);
-    }
-
+    // --- Internal Request Helper with Retries ---
     private function request(string $method, string $path, ?array $payload = null): array
     {
-        $url = $this->baseUrl . $path;
-        $ch = curl_init($url);
+        $url = rtrim($this->baseUrl, '/') . $path;
+        $lastError = null;
 
-        $headers = [
-            'Authorization: Bearer ' . $this->apiKey,
-            'Content-Type: application/json',
-        ];
+        for ($attempt = 0; $attempt <= $this->maxRetries; $attempt++) {
+            $ch = curl_init($url);
+            curl_setopt_array($ch, [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_CUSTOMREQUEST => $method,
+                CURLOPT_TIMEOUT => $this->timeoutSeconds,
+                CURLOPT_HTTPHEADER => [
+                    'Authorization: Bearer ' . $this->apiKey,
+                    'Content-Type: application/json',
+                    'User-Agent: EnvoiSMS-PHPSDK/1.0.0',
+                ],
+            ]);
 
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_CUSTOMREQUEST => $method,
-            CURLOPT_HTTPHEADER => $headers,
-            CURLOPT_TIMEOUT => 20,
-        ]);
+            if ($payload !== null) {
+                curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
+            }
 
-        if ($payload !== null && in_array($method, ['POST', 'PUT', 'PATCH'], true)) {
-            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
-        }
-
-        $response = curl_exec($ch);
-        $status = curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-
-        if (curl_errno($ch)) {
-            $errorMsg = curl_error($ch);
+            $body = curl_exec($ch);
+            $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+            $curlErr = curl_error($ch);
             curl_close($ch);
-            throw new RuntimeException("cURL request failed: " . $errorMsg);
+
+            if ($curlErr) {
+                $lastError = new EnvoiSMSError("cURL error: {$curlErr}", 0);
+                if ($attempt < $this->maxRetries) {
+                    usleep((int) (pow(2, $attempt) * 500000));
+                    continue;
+                }
+                break;
+            }
+
+            if ($status >= 500 && $attempt < $this->maxRetries) {
+                usleep((int) (pow(2, $attempt) * 500000));
+                continue;
+            }
+
+            $data = json_decode((string) $body, true) ?: [];
+            if ($status >= 400) {
+                throw new EnvoiSMSError(
+                    $data['error']['message'] ?? "EnvoiSMS API error ({$status})",
+                    $status,
+                    $data['error']['code'] ?? null
+                );
+            }
+
+            return $data;
         }
 
-        curl_close($ch);
-        $data = json_decode($response, true);
-
-        if ($status >= 400) {
-            $message = $data['error']['message'] ?? "EnvoiSMS API error: status {$status}";
-            throw new RuntimeException($message);
-        }
-
-        return $data ?? [];
+        throw $lastError ?? new EnvoiSMSError('Request failed');
     }
 }
