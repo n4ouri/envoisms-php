@@ -1,8 +1,8 @@
 # EnvoiSMS PHP SDK
 
-Official PHP SDK for [EnvoiSMS.ma](https://envoisms.ma) — SMS, WhatsApp & OTP API platform for Morocco.
+Official PHP SDK for [EnvoiSMS.ma](https://envoisms.ma) — [Passerelle SMS & WhatsApp Business](https://envoisms.ma/fr/docs) and [API SMS Maroc](https://envoisms.ma/fr/tarifs).
 
-For complete API documentation and integration guides, visit [EnvoiSMS Documentation](https://envoisms.ma/fr/docs).
+For complete API documentation and integration guides, visit the [Passerelle SMS & WhatsApp Business](https://envoisms.ma/fr/docs). For pricing plans and credit packs, visit [API SMS Maroc](https://envoisms.ma/fr/tarifs).
 
 ## Installation
 
@@ -54,9 +54,10 @@ if (!empty($verifyResult['verified'])) {
 }
 ```
 
-## Documentation
+## Documentation & Tarifs
 
-Full API reference is available at [https://envoisms.ma/fr/docs](https://envoisms.ma/fr/docs).
+- Documentation technique & intégration : [Passerelle SMS & WhatsApp Business](https://envoisms.ma/fr/docs)
+- Grille tarifaire et packs de crédits : [API SMS Maroc](https://envoisms.ma/fr/tarifs)
 
 ## License
 
