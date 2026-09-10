@@ -13,7 +13,7 @@ class EnvoiSMSError extends RuntimeException
         public readonly int $statusCode = 0,
         public readonly ?string $errorCode = null
     ) {
-        super($message, $statusCode);
+        parent::__construct($message, $statusCode);
     }
 }
 
@@ -74,6 +74,33 @@ final class Client
         return $this->request('GET', '/v1/billing/packs');
     }
 
+    public function listPaymentMethods(): array
+    {
+        return $this->request('GET', '/v1/billing/payment-methods');
+    }
+
+    public function createTopup(array $payload): array
+    {
+        return $this->request('POST', '/v1/billing/topups', $payload);
+    }
+
+    // --- Analytics & API Keys ---
+    public function analytics(int $days = 30): array
+    {
+        return $this->request('GET', '/v1/analytics?days=' . $days);
+    }
+
+    public function createApiKey(array $payload): array
+    {
+        return $this->request('POST', '/v1/api-keys', $payload);
+    }
+
+    // --- Compliance ---
+    public function createOptout(string $phone): array
+    {
+        return $this->request('POST', '/v1/optouts', ['phone' => $phone]);
+    }
+
     // --- Webhook Signature Verification ---
     public static function verifyWebhookSignature(
         string $rawBody,
@@ -107,7 +134,7 @@ final class Client
             }
 
             $expected = hash_hmac('sha256', "{$timestamp}.{$rawBody}", $secret);
-            return hash_equals($signature, $expected);
+            return hash_equals($expected, $signature);
         }
 
         // Direct sha256=... header
@@ -116,7 +143,7 @@ final class Client
             : $signatureHeader;
 
         $expected = hash_hmac('sha256', $rawBody, $secret);
-        return hash_equals($cleanSig, $expected);
+        return hash_equals($expected, $cleanSig);
     }
 
     // --- Internal Request Helper with Retries ---
@@ -134,7 +161,7 @@ final class Client
                 CURLOPT_HTTPHEADER => [
                     'Authorization: Bearer ' . $this->apiKey,
                     'Content-Type: application/json',
-                    'User-Agent: EnvoiSMS-PHPSDK/1.0.0',
+                    'User-Agent: EnvoiSMS-PHPSDK/1.1.0',
                 ],
             ]);
 

@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        php-version: ['8.0', '8.1', '8.2', '8.3']
+        php-version: ['8.1', '8.2', '8.3']
 
     steps:
       - uses: actions/checkout@v4
@@ -22,3 +22,5 @@ jobs:
           extensions: curl, json
       - name: Validate composer.json
         run: composer validate --no-check-all
+      - name: Lint source for syntax/fatal errors
+        run: find src -name '*.php' -print0 | xargs -0 -n1 php -l
